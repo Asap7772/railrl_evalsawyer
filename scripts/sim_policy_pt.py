@@ -7,7 +7,7 @@ import argparse
 import pickle
 import uuid
 from rlkit.core import logger
-from rlkit.torch.conv_networks import CNN, ConcatCNN, ConcatBottleneckCNN, TwoHeadCNN
+from rlkit.torch.conv_networks import CNN, ConcatCNN, ConcatBottleneckCNN, TwoHeadCNN,VQVAEEncoderCNN
 import torch
 from sawyer_control.envs.sawyer_grip import SawyerGripEnv
 import matplotlib.pyplot as plt
@@ -17,6 +17,7 @@ from rlkit.torch.sac.policies_v2 import TanhGaussianPolicy, GaussianPolicy, Make
 
 def simulate_policy(args):
     action_dim = args.action_dim
+
     cnn_params=dict(
         kernel_sizes=[3, 3, 3],
         n_channels=[16, 16, 16],
@@ -29,22 +30,37 @@ def simulate_policy(args):
         pool_paddings=[0, 0, 0],
         image_augmentation=True,
         image_augmentation_padding=4)
-        
+
+
+    if args.deeper_net:
+        print('deeper conv net')
+        cnn_params.update(
+            kernel_sizes=[3, 3, 3, 3, 3],
+            n_channels=[32, 32, 32, 32, 32],
+            strides=[1, 1, 1, 1, 1],
+            paddings=[1, 1, 1, 1, 1],
+            pool_sizes=[2, 2, 1, 1, 1],
+            pool_strides=[2, 2, 1, 1, 1],
+            pool_paddings=[0, 0, 0, 0, 0]
+        )
+    
     cnn_params.update(
-        input_width=64,
-        input_height=64,
+        input_width=48,
+        input_height=48,
         input_channels=3,
         output_size=1,
         added_fc_input_size=action_dim,
     )
-
+    
     cnn_params.update(
         output_size=256,
-        added_fc_input_size=0,
+        added_fc_input_size=args.statedim if args.imgstate else 0,
         hidden_sizes=[1024, 512],
-    )
-
-    policy_obs_processor = CNN(**cnn_params)
+    )   
+    if args.vqvae_enc:
+        policy_obs_processor = VQVAEEncoderCNN(**cnn_params)
+    else:
+        policy_obs_processor = CNN(**cnn_params)
     
     policy_class = GaussianPolicy if args.gaussian_policy else TanhGaussianPolicy
     policy = policy_class(
@@ -55,23 +71,7 @@ def simulate_policy(args):
     )
 
     parameters = torch.load(args.policy_path)
-    try:
-        policy.load_state_dict(parameters['policy_state_dict'])
-    except:
-        # TODO check why this is mislabeled?
-        assert False
-        map_dict = {
-            "fc0.weight": "fcs.0.weight",          
-            "fc0.bias" : "fcs.0.bias",
-            "fc1.weight" : "fcs.1.weight",
-            "fc1.bias" : "fcs.1.bias", 
-            "fc2.weight" : "fcs.2.weight",
-            "fc2.bias" : "fcs.2.bias", 
-        }
-        for key, value in map_dict.items():
-            parameters['policy_state_dict'][value] = parameters['policy_state_dict'][key]
-            parameters['policy_state_dict'].pop(key)
-        policy.load_state_dict(parameters['policy_state_dict'])
+    policy.load_state_dict(parameters['policy_state_dict'])
         
     env = SawyerGripEnv(action_mode='position',
             config_name='ashvin_config',
@@ -146,7 +146,7 @@ def simulate_policy(args):
         observation = env.reset()
         for j in range(args.H):
             print('trans', j)
-            obs_img = crop(np.flip(observation['hires_image_observation'], axis=-1))
+            obs_img = crop(np.flip(observation['hires_image_observation'], axis=-1), img_dim=(48,48) if args.smdim else (64,64))
             obs_img = torch.from_numpy(obs_img.numpy().swapaxes(-2,-1))
             if args.save_img:
                 plot_img(obs_img)
@@ -154,7 +154,7 @@ def simulate_policy(args):
             if args.debug:
                 action = np.random.rand(4)
             else:
-                action = policy(obs_img.flatten()[None])[0].squeeze().detach().cpu().numpy()
+                action = policy.forward(obs_img.flatten()[None],extra_fc_input=torch.from_numpy(observation['state_observation'])[None].float() if args.imgstate else None)[0].squeeze().detach().cpu().numpy()
             print('action', action)
             old_obs = observation
             observation, reward, done, info = env.step(action)
@@ -191,6 +191,11 @@ if __name__ == "__main__":
     parser.add_argument('--hide', action='store_true')
     parser.add_argument('--enable_render', action='store_true')
     parser.add_argument('--log_diagnostics', action='store_true')
+    parser.add_argument('--smdim', action='store_true')
+    parser.add_argument('--vqvae_enc', action='store_true')
+    parser.add_argument('--deeper_net', action='store_true')
+    parser.add_argument('--imgstate', action='store_true')
+    parser.add_argument('--statedim', type=int, default=3)
     parser.add_argument('--action_dim', type=int, default=4)
     args = parser.parse_args()
     simulate_policy(args)

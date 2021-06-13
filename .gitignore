@@ -1,4 +1,6 @@
 MUJOCO_LOG.TXT
+images/
+images
 railrl.egg-info/
 data
 data/
