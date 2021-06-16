@@ -114,9 +114,9 @@ def simulate_policy(args):
                 if args.save_img:
                     plot_img(obs_img)
                 
-                obs_img = vqvae.encode(obs_img)
                 if args.save_img:
                     plot_img(vqvae.decode(vqvae.encode(obs_img)).squeeze())
+                obs_img = vqvae.encode(obs_img)
 
                 obs_img = obs_img.flatten()
                 obs_img = obs_img.repeat(args.num_random, 1).to(ptu.device)

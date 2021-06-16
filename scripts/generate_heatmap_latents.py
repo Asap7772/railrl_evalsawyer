@@ -1,7 +1,8 @@
 import ipdb
 import numpy as np
 import argparse
-from rlkit.torch.conv_networks import CNN, ConcatCNN, ConcatBottleneckCNN, TwoHeadCNN, VQVAEEncoderCNN
+from rlkit.torch.conv_networks import ConcatMlp
+from rlkit.torch.sac.policies_v2 import TanhGaussianPolicy
 
 import torchvision.transforms.functional as F
 from PIL import Image
@@ -18,15 +19,10 @@ parser.add_argument('--traj_num', type=int, default=0)
 parser.add_argument('--traj_path', type=str, default='/home/ashvin/ros_ws/evaluation.npy')
 parser.add_argument('--path', type=str, default='/home/ashvin/pickle_eval/guassian-policy-pot-off-minq1/guassian_policy_pot_off_minq1_2021_06_05_01_06_04_0000--s-0/model_pkl/500.pt')
 parser.add_argument('--action_dim', type=int, default=4)
-parser.add_argument('--state_dim', default=3, type=int)
+parser.add_argument('--state_dim', default=720, type=int)
 parser.add_argument('--policy', action='store_true')
-parser.add_argument('--deeper_net', action='store_true')
-parser.add_argument('--vqvae_enc', action='store_true')
-parser.add_argument('--imgstate', action='store_true')
-parser.add_argument('--smimg', action='store_true')
-parser.add_argument('--bottleneck', action='store_true')
+parser.add_argument('--smimg', action='store_false', default=True)
 args = parser.parse_args()
-
 
 def plot_img(obs_img):
     plt.figure()
@@ -40,74 +36,27 @@ def plot_img(obs_img):
 
 action_dim = args.action_dim
     
-cnn_params=dict(
-    kernel_sizes=[3, 3, 3],
-    n_channels=[16, 16, 16],
-    strides=[1, 1, 1],
-    hidden_sizes=[1024, 512, 256],
-    paddings=[1, 1, 1],
-    pool_type='max2d',
-    pool_sizes=[2, 2, 1],  # the one at the end means no pool
-    pool_strides=[2, 2, 1],
-    pool_paddings=[0, 0, 0],
-    image_augmentation=True,
-    image_augmentation_padding=4)
-
-cnn_params.update(
-    input_width=64,
-    input_height=64,
-    input_channels=3,
-    output_size=1,
-    added_fc_input_size=action_dim,
-)
-
+from rlkit.misc.asset_loader import load_local_or_remote_file
+vqvae_path = '/nfs/kun1/users/asap7772/best_vqvae.pt'
+vqvae = load_local_or_remote_file(vqvae_path)
 
 if args.policy:
-    if args.deeper_net:
-        print('deeper conv net')
-        cnn_params.update(
-            kernel_sizes=[3, 3, 3, 3, 3],
-            n_channels=[32, 32, 32, 32, 32],
-            strides=[1, 1, 1, 1, 1],
-            paddings=[1, 1, 1, 1, 1],
-            pool_sizes=[2, 2, 1, 1, 1],
-            pool_strides=[2, 2, 1, 1, 1],
-            pool_paddings=[0, 0, 0, 0, 0]
-        )
-    
-    cnn_params.update(
-        input_width=48,
-        input_height=48,
-        input_channels=3,
-        output_size=1,
-        added_fc_input_size=action_dim,
-    )
-    
-    cnn_params.update(
-        output_size=256,
-        added_fc_input_size=args.state_dim if args.imgstate else 0,
-        hidden_sizes=[1024, 512],
-    )   
-    if args.vqvae_enc:
-        policy_obs_processor = VQVAEEncoderCNN(**cnn_params)
-    else:
-        policy_obs_processor = CNN(**cnn_params)
-    from rlkit.torch.sac.policies import TanhGaussianPolicy, MakeDeterministic
-    
     policy = TanhGaussianPolicy(
-        obs_dim=cnn_params['output_size'],
+        obs_dim=args.state_dim,
         action_dim=action_dim,
-        hidden_sizes=[256, 256, 256],
-        obs_processor=policy_obs_processor,
+        hidden_sizes=[512]*4,
+        obs_processor=None,
     )
 else:
-    if args.bottleneck:
-        qf1 = ConcatBottleneckCNN(action_dim, bottleneck_dim=16,deterministic=False, width=64, height=64)
-    else:
-        qf1 = ConcatCNN(**cnn_params)
+    M = 512
+    mlp_params = dict(
+        input_size=args.state_dim + action_dim,
+        output_size=1,
+        hidden_sizes=[M]*3,
+    )
+    qf1 = ConcatMlp(**mlp_params)
 
 parameters = torch.load(args.path)
-# import ipdb; ipdb.set_trace()
 if policy:
     policy.load_state_dict(parameters['policy_state_dict'])
     policy = policy.to(ptu.device)
@@ -136,11 +85,16 @@ def resize_small(img):
 for i in range(len(traj)):
     obs = traj[i]
     state = trajs[args.traj_num]['observations'][i]['state_observation']
+    
     plot_img(obs)
     if args.smimg:
         obs = resize_small(obs)
-        obs = torch.from_numpy(obs.numpy().swapaxes(-2,-1))
-    plot_img(obs)
+        # obs = torch.from_numpy(obs.numpy().swapaxes(-2,-1))
+        plot_img(obs)
+
+    vqvae = vqvae.cpu()
+    plot_img(vqvae.decode(vqvae.encode(obs)).squeeze())
+    obs = vqvae.encode(obs)
 
     x = np.linspace(-0.8,0.8)
     y = np.flip(np.linspace(-0.8,0.8))
@@ -150,7 +104,7 @@ for i in range(len(traj)):
     actions_close = torch.cat((actions, torch.zeros_like(actions)), axis=1).float().to(ptu.device)
     actions_open = torch.cat((actions, torch.zeros_like(actions)[:,:1], torch.ones_like(actions)[:, :1]), axis=1).float().to(ptu.device)
     
-    obs_tens = obs.repeat(actions.shape[0], 1, 1, 1).flatten(1).to(ptu.device)
+    obs_tens = obs.flatten(1).repeat(actions.shape[0], 1).to(ptu.device)
     # qf1 = lambda x, y: y.sum(axis=1, keepdim=True)
     
     columns=np.around(x,decimals=2)
@@ -165,7 +119,7 @@ for i in range(len(traj)):
     state = torch.from_numpy(state).float()
     state_tens = state.repeat(actions.shape[0],1).to(ptu.device)
     if args.policy:
-        qvals = policy.log_prob(obs_tens, actions_close, extra_fc_input = state_tens if args.imgstate else None)
+        qvals = policy.log_prob(obs_tens, actions_close, extra_fc_input = None, unsumed=True)
     else:
         qvals = qf1(obs_tens, actions_close)
 
@@ -177,7 +131,7 @@ for i in range(len(traj)):
     plt.show()
 
     if args.policy:
-        qvals = policy.log_prob(obs_tens, actions_open,extra_fc_input = state_tens if args.imgstate else None)
+        qvals = policy.log_prob(obs_tens, actions_open, extra_fc_input = None, unsumed=True)
     else:
         qvals = qf1(obs_tens, actions_open)
     qvals = qvals.detach().cpu().numpy().flatten().reshape(50,50)
@@ -185,4 +139,3 @@ for i in range(len(traj)):
     ax = sns.heatmap(df)
     plt.show()
 
- 

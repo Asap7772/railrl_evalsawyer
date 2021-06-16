@@ -639,6 +639,17 @@ from rlkit.torch.vae.vq_vae import Encoder
 
 import numpy as np
 
+class ConcatMlp(Mlp):
+    """
+    Concatenate inputs along dimension and then pass through MLP.
+    """
+    def __init__(self, *args, dim=1, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.dim = dim
+
+    def forward(self, *inputs, **kwargs):
+        flat_inputs = torch.cat(inputs, dim=self.dim)
+        return super().forward(flat_inputs, **kwargs)
 
 class CNN(nn.Module):
     # TODO: remove the FC parts of this code
@@ -1313,23 +1324,27 @@ class VQVAEEncoderConcatCNN(ConcatCNN):
     def forward(self, *inputs, **kwargs):
         return super().forward(*inputs, **kwargs)
 
-
 class VQVAEEncoderCNN(CNN):
     def __init__(self, *args, **kwargs):
         kwargs['kernel_sizes'] = []
         kwargs['n_channels'] = []
-        kwargs['strides'] = []  
+        kwargs['strides'] = []
         kwargs['paddings'] = []
         super().__init__(*args, **kwargs)
 
-        self.encoder = Encoder(self.input_channels, 128, 3, 64, spectral_norm=kwargs['spectral_norm_conv'] if 'spectral_norm_conv' in kwargs else False)
+        self.encoder = Encoder(self.input_channels, 128, 3, 64, spectral_norm=kwargs['spectral_norm_conv'] if 'spectral_norm_conv' in kwargs else False, input_dim=kwargs['input_width'])
 
     def apply_forward_conv(self, h):
         out = self.encoder(h)
         return out
 
     def get_conv_output_size(self):
-        return 128 * 12 * 12
+        if self.input_width == self.input_height == 48:
+            return 128 * 12 * 12
+        elif self.input_width == self.input_height == 64:
+            return 128 * 16 * 16
+        else:
+            raise ValueError
 
     def forward(self, *inputs, **kwargs):
         return super().forward(*inputs, **kwargs)

@@ -45,8 +45,8 @@ def simulate_policy(args):
         )
     
     cnn_params.update(
-        input_width=48,
-        input_height=48,
+        input_width=64,
+        input_height=64,
         input_channels=3,
         output_size=1,
         added_fc_input_size=action_dim,
@@ -56,12 +56,15 @@ def simulate_policy(args):
         output_size=256,
         added_fc_input_size=args.statedim if args.imgstate else 0,
         hidden_sizes=[1024, 512],
-    )   
+    ) 
+
+    print(cnn_params)
+
     if args.vqvae_enc:
         policy_obs_processor = VQVAEEncoderCNN(**cnn_params)
     else:
         policy_obs_processor = CNN(**cnn_params)
-    
+
     policy_class = GaussianPolicy if args.gaussian_policy else TanhGaussianPolicy
     policy = policy_class(
         obs_dim=cnn_params['output_size'],
@@ -149,7 +152,7 @@ def simulate_policy(args):
             obs_img = crop(np.flip(observation['hires_image_observation'], axis=-1), img_dim=(48,48) if args.smdim else (64,64))
             obs_img = torch.from_numpy(obs_img.numpy().swapaxes(-2,-1))
             if args.save_img:
-                plot_img(obs_img)
+                plot_img(torch.from_numpy(obs_img.numpy().swapaxes(-2,-1)))
             
             if args.debug:
                 action = np.random.rand(4)
@@ -195,6 +198,7 @@ if __name__ == "__main__":
     parser.add_argument('--vqvae_enc', action='store_true')
     parser.add_argument('--deeper_net', action='store_true')
     parser.add_argument('--imgstate', action='store_true')
+    parser.add_argument('--pickle', action='store_true')
     parser.add_argument('--statedim', type=int, default=3)
     parser.add_argument('--action_dim', type=int, default=4)
     args = parser.parse_args()

@@ -18,6 +18,17 @@ def atanh(x):
     one_minus_x = (1 - x).clamp(min=1e-6)
     return 0.5*torch.log(one_plus_x/ one_minus_x)
 
+class ConcatMlp(Mlp):
+    """
+    Concatenate inputs along dimension and then pass through MLP.
+    """
+    def __init__(self, *args, dim=1, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.dim = dim
+
+    def forward(self, *inputs, **kwargs):
+        flat_inputs = torch.cat(inputs, dim=self.dim)
+        return super().forward(flat_inputs, **kwargs)
 
 class TanhGaussianPolicy(Mlp, ExplorationPolicy):
     """
@@ -80,7 +91,7 @@ class TanhGaussianPolicy(Mlp, ExplorationPolicy):
     def get_actions(self, obs_np, deterministic=False, fc_input=None):
         return eval_np(self, obs_np, deterministic=deterministic, extra_fc_input=fc_input)[0]
 
-    def log_prob(self, obs, actions, extra_fc_input=None,):
+    def log_prob(self, obs, actions, extra_fc_input=None,unsumed=False):
         raw_actions = atanh(actions)
 
         if self.obs_processor is None:
@@ -105,7 +116,12 @@ class TanhGaussianPolicy(Mlp, ExplorationPolicy):
 
         tanh_normal = TanhNormal(mean, std)
         log_prob = tanh_normal.log_prob(value=actions, pre_tanh_value=raw_actions)
-        return log_prob.sum(-1)
+        
+        if unsumed:
+            return log_prob
+        else:
+            return log_prob.sum(-1)
+        
 
     def forward(
             self,

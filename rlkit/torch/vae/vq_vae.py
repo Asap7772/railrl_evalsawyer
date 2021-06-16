@@ -62,9 +62,9 @@ class ResidualStack(nn.Module):
 
 class Encoder(nn.Module):
     def __init__(self, in_channels, num_hiddens, num_residual_layers,
-            num_residual_hiddens, spectral_norm=False):
+            num_residual_hiddens, spectral_norm=False, input_dim=48):
         super(Encoder, self).__init__()
-
+        self.input_dim = input_dim	
         self._conv_1 = nn.Conv2d(in_channels=in_channels,
             out_channels=num_hiddens // 2,
             kernel_size=4,
@@ -90,6 +90,8 @@ class Encoder(nn.Module):
             spectral_norm=spectral_norm)
 
     def forward(self, inputs, ):
+        if len(inputs.shape) == 2:
+            inputs = inputs.view(inputs.shape[0], 3, self.input_dim, self.input_dim)   
         x = self._conv_1(inputs)
         x = F.relu(x)
 
@@ -97,7 +99,8 @@ class Encoder(nn.Module):
         x = F.relu(x)
 
         x = self._conv_3(x)
-        return self._residual_stack(x)
+        x =self._residual_stack(x)
+        return x.view(x.shape[0], -1)
 
 
 class Decoder(nn.Module):

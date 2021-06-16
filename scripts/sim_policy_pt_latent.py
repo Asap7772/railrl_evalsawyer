@@ -58,8 +58,6 @@ def simulate_policy(args):
     if args.deterministic:
         policy = MakeDeterministic(policy)
 
-    if args.pause:
-        import ipdb; ipdb.set_trace()
     if isinstance(policy, PyTorchModule):
         policy.train(False)
     
@@ -104,22 +102,25 @@ def simulate_policy(args):
         infos = []
         
         observation = env.reset()
+        vqvae = vqvae.cpu()
         for j in range(args.H):
+            if args.pause:
+                import ipdb; ipdb.set_trace()
             print('trans', j)
             obs_img = crop(np.flip(observation['hires_image_observation'], axis=-1), img_dim=(48,48) if args.smdim else (64,64))
-            obs_img = torch.from_numpy(obs_img.numpy().swapaxes(-2,-1))
+            # obs_img = torch.from_numpy(obs_img.numpy().swapaxes(-2,-1))
+            
             if args.save_img:
                 plot_img(obs_img)
-            
-            obs_img = vqvae.encode(obs_img)
 
             if args.save_img:
                 plot_img(vqvae.decode(vqvae.encode(obs_img)).squeeze())
+            obs_img = vqvae.encode(obs_img)
             
             if args.debug:
                 action = np.random.rand(4)
             else:
-                action = policy.forward(obs_img.flatten()[None],extra_fc_input=torch.from_numpy(observation['state_observation'])[None].float() if args.imgstate else None)[0].squeeze().detach().cpu().numpy()
+                action = policy.forward(obs_img.flatten()[None],extra_fc_input=None)[0].squeeze().detach().cpu().numpy()
             print('action', action)
             old_obs = observation
             observation, reward, done, info = env.step(action)
