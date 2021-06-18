@@ -149,7 +149,14 @@ def simulate_policy(args):
         observation = env.reset()
         for j in range(args.H):
             print('trans', j)
-            obs_img = crop(np.flip(observation['hires_image_observation'], axis=-1), img_dim=(48,48) if args.smdim else (64,64))
+            obs = observation['hires_image_observation']
+            
+            if args.matrix is not None:
+                import cv2
+                matrix = np.load(args.matrix)   
+                warped = cv2.warpPerspective(obs, matrix, (obs.shape[1], obs.shape[0])).squeeze()
+
+            obs_img = crop(np.flip(obs, axis=-1), img_dim=(48,48) if args.smdim else (64,64))
             obs_img = torch.from_numpy(obs_img.numpy().swapaxes(-2,-1))
             if args.save_img:
                 plot_img(torch.from_numpy(obs_img.numpy().swapaxes(-2,-1)))
@@ -201,5 +208,6 @@ if __name__ == "__main__":
     parser.add_argument('--pickle', action='store_true')
     parser.add_argument('--statedim', type=int, default=3)
     parser.add_argument('--action_dim', type=int, default=4)
+    parser.add_argument('--matrix', type=str, default='/home/ashvin/ros_ws/src/railrl-private_anikait/scripts/matrix.npy')
     args = parser.parse_args()
     simulate_policy(args)

@@ -177,15 +177,13 @@ plt.close()
 
 import cv2 
 # from torchgeometry.core.imgwarp import warp_perspective
-matrix = cv2.getPerspectiveTransform(src.astype(np.float32),dest.astype(np.float32))
+matrix = cv2.getPerspectiveTransform(src.astype(np.float32),dest.astype(np.float32)) #Try this SWAP
 obsnp = obs_img_curr if args.local else obs_img_curr.permute(1,2,0).cpu().numpy()
-obsnp = cv2.cvtColor(obsnp, cv2.COLOR_BGR2RGB)
-# cv2.imshow("Original", obsnp)
-# k = cv2.waitKey(0)
+# cv2.imshow('original', obsnp)
+# cv2.waitKey(0)
 warped = cv2.warpPerspective(obsnp, matrix, (obsnp.shape[1], obsnp.shape[0])).squeeze()
-# cv2.imshow("warped", warped)
-# k = cv2.waitKey(0)
-warped = cv2.cvtColor(warped, cv2.COLOR_RGB2BGR)
+# cv2.imshow('warped', warped)
+# cv2.waitKey(0)
 
 def plot_two_img(obs_img, obs_img2):
     plt.figure()
@@ -207,24 +205,17 @@ def plot_two_img(obs_img, obs_img2):
 
     plt.show()
 
-img1, img2 = obs_img, torch.from_numpy(warped).permute(2,0,1)
-# np.flip(observation['hires_image_observation'], axis=-1)
-def crop2(img, img_dim=(64,64), flip=False):
-    img = img[:, 50:530, :]
-    img = Image.fromarray(np.flip(np.uint8(img*255), axis=-1) if flip else np.uint8(img*255))
-    
-    img = F.resize(img, img_dim, Image.ANTIALIAS)
-    img = np.array(img)
+obs = env._get_obs()['hires_image_observation']
+warped = cv2.warpPerspective(obs, matrix, (obs.shape[1], obs.shape[0])).squeeze()
 
-    img = img*1.0/255
-    img = img.transpose([2,0,1]) #.flatten()
-    return torch.from_numpy(img).float()
+obs = np.flip(obs, axis=-1)
+img_curr = np.flip(warped, axis=-1)
+
+plot_two_img(obs, img_curr)
 
 if args.local:
-    img1, img2 = crop2(img1.permute(2,1,0)), crop2(img2.permute(2,1,0), flip=True)
+    img1, img2 = crop(obs,img_dim=(64,64)), crop(img_curr, img_dim=(64,64))
 
-img1 = torch.from_numpy(img1.numpy().swapaxes(-2,-1))
-img2 = torch.from_numpy(img2.numpy().swapaxes(-2,-1))
 plot_two_img(img1, img2)
 
 np.save('/home/ashvin/ros_ws/src/railrl-private_anikait/scripts/matrix.npy', matrix)
